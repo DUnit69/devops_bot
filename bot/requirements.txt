@@ -1,6 +1,0 @@
-sqlalchemy
-psycopg2-binary
-faker
-paramiko
-python-telegram-bot==13.7
-python-dotenv
