@@ -1,0 +1,129 @@
+- hosts: host1
+  become: yes
+
+  tasks:
+  - name : Install Postgresql
+    apt: name={{item}}
+    loop: [postgresql, postgresql-contrib]
+
+  - name: Creating env
+    copy:
+      dest: "~/.env"
+      content: |
+        TOKEN = "7486131562:AAGiAblCxotg7MJojsukuJsLupo0hBxavtU"
+        DB_USER = "postgres"
+        DB_PASSWORD = "postgres"
+        DB_HOST = "127.0.0.1"
+        DB_PORT = "5432"
+        DB_DATABASE = "postgres"
+
+  - name : Install Python
+    apt: name=python3-pip
+  - name : Install Python Librerys0
+    shell: python3 -m pip install psycopg2-binary --break-system-packages
+  - name : Install Python Librerys1
+    shell: python3 -m pip install paramiko --break-system-packages
+  - name : Install Python Librerys2
+    shell: python3 -m pip install python-telegram-bot==13.7 --break-system-packages
+  - name : Install Python Librerys1
+    shell: python3 -m pip install python-dotenv --break-system-packages
+
+  - name : Update postgresql.conf
+    lineinfile:
+      path: /etc/postgresql/15/main/postgresql.conf
+      regexp: "{{ item.regexp }}"
+      line: "{{ item.line }}"
+    loop:
+      - { regexp: '#wal_log_hint', line: 'wal_log_hints = on' }
+      - { regexp: '#wal_level = replica', line: 'wal_level = hot_standby' }
+      - { regexp: '#max_wal_senders = 10', line: 'max_wal_senders = 10' }
+      - { regexp: '#max_replication_slots = 10', line: 'max_replication_slots = 10' }
+      - { regexp: '#hot_standby = on', line: 'hot_standby = on' }
+      - { regexp: '#hot_standby_feedback = off', line: 'hot_standby_feedback = on' }
+      - { regexp: '#logging_collector = off', line: 'logging_collector = on' }
+      - { regexp: '#log_min_messages = warning', line: 'log_min_messages = info' }
+      - { regexp: "#log_statement = 'none'", line: 'log_statement = all' }
+      - { regexp: '#log_replication_commands = off', line: 'log_replication_commands = on' }
+
+  - name: Set listen_addresses
+    lineinfile: dest=/etc/postgresql/15/main/postgresql.conf
+      regexp="listen_addresses =" line="listen_addresses = '*'" state=present
+
+  - name : Update pg.conf1
+    lineinfile:
+      path: "/etc/postgresql/15/main/pg_hba.conf"
+      line: host replication replicator 192.168.100.66/32 trust
+
+  - name: Update pg.conf2
+    lineinfile: dest=/etc/postgresql/15/main/pg_hba.conf
+      regexp="host    all             all             127.0.0.1/32 " line="host all all 127.0.0.1/32 trust" state=present
+
+  - name : Update2 pg.conf
+    lineinfile:
+      path: "/etc/postgresql/15/main/pg_hba.conf"
+      line: host replication all all trust
+
+  - name: restart postgres
+    service: name=postgresql state=restarted
+
+  - name: Become postgres
+    ansible.builtin.service:
+      name: postgres
+
+  - name: Init Db1
+    become_user: postgres
+    community.postgresql.postgresql_slot:
+      slot_name: replication_slot
+
+
+
+    #shell: sudo -u postgres psql -c "pg_create_physical_replication_slot('replication_slot')"
+
+  - name: Init Db2
+    shell: sudo -u postgres psql -c "CREATE TABLE emails( id SERIAL PRIMARY KEY, email VARCHAR(50) );"
+  - name: Init Db3
+    shell: sudo -u postgres psql -c "CREATE TABLE phones( id SERIAL PRIMARY KEY, phone VARCHAR(50) );"
+
+  - name: Create replication user
+    shell: sudo -u postgres psql -c "CREATE USER replicator WITH REPLICATION ENCRYPTED PASSWORD 'rep'"
+
+  - name: Download Python app
+    shell: wget -L https://raw.githubusercontent.com/DUnit69/devops_bot/docker/bot/2.py
+
+- hosts: host2
+  become: yes
+  tasks:
+  - name : Install Postgresql
+    apt: name={{item}}
+    loop: [postgresql, postgresql-contrib]
+
+  - name: Set listen_addresses2
+    lineinfile: dest=/etc/postgresql/15/main/postgresql.conf
+      regexp="listen_addresses =" line="listen_addresses = '*'" state=present
+  - name: stop
+    become: yes
+    shell: systemctl stop postgresql
+
+  - name: deledata
+    become: yes
+    shell: rm -rf /var/lib/postgresql/15/main/*
+
+  - name: Pg_basebackup
+    become: yes
+    become_user: postgres
+    shell: pg_basebackup --pgdata=/var/lib/postgresql/15/main -v -R --slot=replication_slot --host=192.168.100.69 --port=5432 --username=replicator
+
+  - name: chmod
+    become: yes
+    shell: chmod -R 750 /var/lib/postgresql
+
+  - name: restart
+    become: yes
+    shell: systemctl restart postgresql
+
+- hosts: host1
+  become: yes
+  tasks:
+  
+  - name: execute bot
+    command: python3 ./2.py &
